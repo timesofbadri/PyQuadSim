@@ -29,8 +29,8 @@ from quadstick.axial.game.logitech import ExtremePro3D as Controller
 
 # Simulation parameters ===========================================================
 
-# XXX Unrealistic GPS simulation (perfect accuracy
-GPS_NOISE_METERS = 0
+# XXX We should be able to handle more noise than this
+GPS_NOISE_METERS = 0.4
 
 # Timeout for receiving data from client
 TIMEOUT_SEC      = 1.0
@@ -89,7 +89,7 @@ class LogFile(object):
 
     def __init__(self, directory):
  
-        self.fd = open(directory + '/' + time.strftime('%d_%b_%Y_%H_%M_%S') + '.csv', 'w')
+        self.fd = open(directory + '/' + time.strftime('%d_%b_%Y_%H_%M_%S') + '.log', 'w')
 
     def writeln(self, string):
 
@@ -117,21 +117,17 @@ particleSizes = particleInfo[0:4]
 particleDensity = particleInfo[4]
 particleCountPerSecond = particleInfo[5]
 
-# Receive vision sensor properties from client
-visionSensorResolution       = receiveFloats(client, 2)
-visionSensorPosition         = receiveFloats(client, 3)
-visionSensorPerspectiveAngle = receiveFloats(client, 1)[0]
-
 # Open logfile named by current date, time
 logfile = LogFile(pyquadsim_directory + '/logs') 
 
 # Create a quadrotor object for  pitch, roll, yaw, altitude correction.  
 # Pass the resolution of the image sensor.
 # Pass it the logfile object in case it needs to write to the logfile.
-quad = Quadrotor((int(visionSensorResolution[0]), int(visionSensorResolution[1])), visionSensorPerspectiveAngle, logfile)
+quad = Quadrotor(logfile)
 
 # Create coordinate calculator for GPS simulation
-coordcalc = CoordinateCalculator()
+# XXX for now cannot handle actual coordinates, so pass it (0,0)
+coordcalc = CoordinateCalculator((0, 0))
 
 # Loop ==========================================================================================================
 
@@ -145,9 +141,6 @@ while True:
 
         # Quit on timeout
         if not clientData: exit(0)
-
-        # Get vision sensor image bytes from client
-        visionSensorImageBytes = client.recv(3 * int(visionSensorResolution[0]) * int(visionSensorResolution[1]))
 
         # Unpack IMU data        
         timestepSeconds = clientData[0]
@@ -184,9 +177,7 @@ while True:
         # Get motor thrusts from quadrotor model
         thrusts = quad.getMotors((pitchAngleRadians, rollAngleRadians, yawAngleRadians), altitudeMeters, \
                                   coordcalc.metersToDegrees(positionXMeters, positionYMeters),\
-                                  visionSensorImageBytes,
-                                  demands,  timestepSeconds, 
-                                  (positionXMeters, positionYMeters))
+                                  demands,  timestepSeconds)
 
         # Force is a function of particle count
         particleCount = int(particleCountPerSecond * timestepSeconds)
