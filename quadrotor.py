@@ -1,7 +1,7 @@
 '''
 quadrotor.py - Quadrotor control class
 
-    Copyright (C) 2014 Bipeen Acharya, Fred Gisa, Shannon Nollet, and Simon D. Levy
+    Copyright (C) 2014 Bipeen Acharya, Fred Gisa, and Simon D. Levy
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as 
@@ -17,21 +17,21 @@ quadrotor.py - Quadrotor control class
 
 # PID parameters (I is currently unused) ==========================================
 
-IMU_PITCH_ROLL_Kp       = 1.0
+IMU_PITCH_ROLL_Kp       = .25
 IMU_PITCH_ROLL_Kd       = 0.1
 
-IMU_YAW_Kp              = 1.0
-IMU_YAW_Kd              = 0.4
+IMU_YAW_Kp 	            = 1.0
+IMU_YAW_Kd 	            = 0.4
 
 # We don't need K_d because we use first derivative
 ALTITUDE_Kp             = 10
 
 # This is large because it is based on decimal degrees
-GPS_PITCH_ROLL_Kp       = 5000
+GPS_PITCH_ROLL_Kp       = 2500
 
 # Empirical constants  ============================================================
 
-THRUST_BASELINE         = 5.335
+THRUST_BASELINE 	    = 5.335
 ROLL_DEMAND_FACTOR      = 0.1
 PITCH_DEMAND_FACTOR     = 0.1
 YAW_DEMAND_FACTOR       = 0.5
@@ -45,7 +45,7 @@ GPS_PLOT_SIZE           = 300
 GPS_PLOT_RAW_RGB        = (255,255, 0)
 GPS_PLOT_FILTERED_RGB   = (0,  255, 0)
 
-# Essential imports ================================================================
+# Essential imports =========================================================================
 
 from pidcontrol import Stability_PID_Controller, Yaw_PID_Controller, Hover_PID_Controller
 from geometry import rotate
@@ -71,6 +71,7 @@ def gps2pose(gps, imu):
 
     return gps[0], gps[1], imu[2]
 
+
 # Quadrotor class ==================================================================
 
 class Quadrotor(object):
@@ -79,7 +80,7 @@ class Quadrotor(object):
         '''
         Creates a new Quadrotor object with optional logfile.
         '''
-
+     
         # Store logfile handle
         self.logfile = logfile
 
@@ -104,24 +105,23 @@ class Quadrotor(object):
         # Create Kalman filter for GPS
         self.kalmanFilt = Kalman2D() 
 
-
     def getMotors(self, imuAngles, altitude, gpsCoords, controllerInput, timestep):
         '''
         Gets motor thrusts based on current telemetry:
 
-            imuAngles         IMU pitch, roll, yaw angles in radians
-            altitude          altitude in meters
-            gpsCoords         GPS coordinates (latitude, longitude) in degrees
-            controllInput     (pitchDemand, rollDemand, yawDemand, climbDemand) in interval [-1,+1]
-                              (altitudeHold, positionHold, autopilot) flags
-            timestep          timestep in seconds
+            imuAngles      IMU pitch, roll, yaw angles in radians
+            altitude       altitude in meters
+            gpsCoords      GPS coordinates (latitude, longitude) in degrees
+            controllInput  (pitchDemand, rollDemand, yawDemand, climbDemand) in interval [-1,+1]
+                           (altitudeHold, positionHold, autopilot) flags
+            timestep       timestep in seconds
         '''
 
         # Update Kalman filter with latitude, longitude
         self.kalmanFilt.update(gpsCoords[0], gpsCoords[1])
         gpsCoordsFiltered = self.kalmanFilt.getEstimate()
-      
-        # Make tuple for current actual pose
+
+         # Make tuple for current actual pose
         rawPose      = gps2pose(gpsCoords,         imuAngles)
         filteredPose = gps2pose(gpsCoordsFiltered, imuAngles)
 
@@ -140,7 +140,8 @@ class Quadrotor(object):
         pitchrollDemand = math.sqrt(pitchDemand**2 + rollDemand**2)
 
         # Compute GPS latitude, longitude correction from filtered GPS coordinates
-        gpsLatCorrection  =  self.latitude_PID.getCorrection(gpsCoordsFiltered[0], pitchrollDemand, timestep=timestep)
+
+        gpsLatCorrection  = self.latitude_PID.getCorrection(gpsCoordsFiltered[0], pitchrollDemand, timestep=timestep)
         gpsLongCorrection = self.longitude_PID.getCorrection(gpsCoordsFiltered[1], pitchrollDemand, timestep=timestep)
 
         # Compute GPS-based pitch, roll correction if we want position-hold
@@ -159,10 +160,9 @@ class Quadrotor(object):
         imuPitchCorrection = self.pitch_Stability_PID.getCorrection(imuAngles[0], timestep)      
         imuRollCorrection  = self.roll_Stability_PID.getCorrection(-imuAngles[1], timestep)
 
-        # Simple autopilot demo: yaw & climb
+        # Simple autopilot demo: yaw 
         if stickFlags[2]:
             yawDemand = 0.05
-            climbDemand = 1
 
         # Special PID for yaw
         yawCorrection   = self.yaw_IMU_PID.getCorrection(imuAngles[2], yawDemand, timestep)

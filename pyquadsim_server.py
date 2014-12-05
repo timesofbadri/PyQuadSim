@@ -29,7 +29,7 @@ from quadstick.axial.game.logitech import ExtremePro3D as Controller
 
 # Simulation parameters ===========================================================
 
-# XXX We should be able to handle more noise than this
+# Simulate noise in GPS signal
 GPS_NOISE_METERS = 0.4
 
 # Timeout for receiving data from client
@@ -89,7 +89,7 @@ class LogFile(object):
 
     def __init__(self, directory):
  
-        self.fd = open(directory + '/' + time.strftime('%d_%b_%Y_%H_%M_%S') + '.log', 'w')
+        self.fd = open(directory + '/' + time.strftime('%d_%b_%Y_%I_%M_%S') + '.log', 'w')
 
     def writeln(self, string):
 
@@ -121,7 +121,6 @@ particleCountPerSecond = particleInfo[5]
 logfile = LogFile(pyquadsim_directory + '/logs') 
 
 # Create a quadrotor object for  pitch, roll, yaw, altitude correction.  
-# Pass the resolution of the image sensor.
 # Pass it the logfile object in case it needs to write to the logfile.
 quad = Quadrotor(logfile)
 
@@ -138,6 +137,9 @@ while True:
 
         # Get core data from client
         clientData = receiveFloats(client, 55)
+
+        if not clientData:
+            break
 
         # Quit on timeout
         if not clientData: exit(0)
@@ -161,7 +163,7 @@ while True:
         # Add some Guassian noise to position
         positionXMeters = random.gauss(positionXMeters, GPS_NOISE_METERS)
         positionYMeters = random.gauss(positionYMeters, GPS_NOISE_METERS)
-
+            
         # Convert Euler angles to pitch, roll, yaw
         # See http://en.wikipedia.org/wiki/Flight_dynamics_(fixed-wing_aircraft) for positive/negative orientation
         rollAngleRadians, pitchAngleRadians = rotate((alphaRadians, betaRadians), gammaRadians)
