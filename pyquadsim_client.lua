@@ -42,7 +42,8 @@ end
 
 -- Initialization ==============================================================
 
-if (simGetScriptExecutionCount()==0) then
+if (sim_call_type==sim_childscriptcall_initialization) then 
+
 
     simSetThreadSwitchTiming(200) -- We wanna manually switch for synchronization purpose (and also not to waste processing time!)
 
@@ -127,62 +128,63 @@ end -- Initialization
 
 
 -- Looping code =================================================================================
+if (sim_call_type==sim_childscriptcall_actuation) then 
 
--- Now don't waste time in this loop if the simulation time hasn't changed! 
--- This also synchronizes this thread with the main script
--- This thread will resume just before the main script is called again
-simSwitchThread() 
 
--- Get position
-position = simGetObjectPosition(base, -1)
+    -- Now don't waste time in this loop if the simulation time hasn't changed! 
+    -- This also synchronizes this thread with the main script
+    -- This thread will resume just before the main script is called again
+    simSwitchThread() 
 
--- Get Euler angles for IMU
-orientation = simGetObjectOrientation(base, -1)
+    -- Get position
+    position = simGetObjectPosition(base, -1)
 
--- Get vision sensor image as bytes
-visionSensorImage = simGetVisionSensorImage(visionSensorHandle, 0, 0, 0, 0, 1)
+    -- Get Euler angles for IMU
+    orientation = simGetObjectOrientation(base, -1)
 
--- Build core data from timestep and angles
-coreData = { timestep, position[1], position[2], position[3], orientation[1], orientation[2], orientation[3] } 
+    -- Get vision sensor image as bytes
+    visionSensorImage = simGetVisionSensorImage(visionSensorHandle, 0, 0, 0, 0, 1)
 
- -- Add all propeller matrices to core data
-for i = 1, 4, 1 do
-    propellerMatrix = simGetObjectMatrix(propellerList[i],-1)
-    for j = 1, 12, 1 do
-        table.insert(coreData, propellerMatrix[j])
-    end
-end
+    -- Build core data from timestep and angles
+    coreData = { timestep, position[1], position[2], position[3], orientation[1], orientation[2], orientation[3] } 
 
--- Send core data to server
-sendFloats(server, coreData)
-
--- Send vision sensor image bytes to server
-server:send(visionSensorImage)
-
--- Receive 3D forces and torques from server
-forcesAndTorques = receiveFloats(server, 24)
-
-if forcesAndTorques == nil then
-
-    simStopSimulation()
-
-else 
-
-    -- Set forces and torques for each propeller
+    -- Add all propeller matrices to core data
     for i = 1, 4, 1 do
-
-        -- Set float signals to the respective propellers, and propeller respondables
-        simSetFloatSignal('Quadricopter_propeller_respondable'..i, propellerRespondableList[i])
-
-        -- Set force and torque for propeller
-        j = (i-1) * 6
-        for k = 1, 3, 1 do
-            simSetFloatSignal('force'..i..k,  forcesAndTorques[j+k])
-            simSetFloatSignal('torque'..i..k, forcesAndTorques[j+k+3])
+        propellerMatrix = simGetObjectMatrix(propellerList[i],-1)
+        for j = 1, 12, 1 do
+            table.insert(coreData, propellerMatrix[j])
         end
-        
     end
 
-    simHandleChildScript(sim_handle_all_except_explicit)
+    -- Send core data to server
+    sendFloats(server, coreData)
 
+    -- Send vision sensor image bytes to server
+    server:send(visionSensorImage)
+
+    -- Receive 3D forces and torques from server
+    forcesAndTorques = receiveFloats(server, 24)
+
+    if forcesAndTorques == nil then
+
+        simStopSimulation()
+
+    else 
+
+        -- Set forces and torques for each propeller
+        for i = 1, 4, 1 do
+
+            -- Set float signals to the respective propellers, and propeller respondables
+            simSetFloatSignal('Quadricopter_propeller_respondable'..i, propellerRespondableList[i])
+
+            -- Set force and torque for propeller
+            j = (i-1) * 6
+            for k = 1, 3, 1 do
+                simSetFloatSignal('force'..i..k,  forcesAndTorques[j+k])
+                simSetFloatSignal('torque'..i..k, forcesAndTorques[j+k+3])
+            end
+
+        end
+
+    end
 end
