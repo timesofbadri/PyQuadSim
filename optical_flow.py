@@ -5,8 +5,11 @@ optical_flow.py - Optical-flow velocity calculation and display using OpenCV
 
     To test:
 
-      % optical_flow            # video from webcam
-      % optical_flow FILENAME   # video from file
+      % python optical_flow.py               # video from webcam
+      % python optical_flow.py -f FILENAME   # video from file
+      % python optical_flow.py -c CAMERA     # specific camera number
+      % python optical_flow.py -s N          # scale-down factor for flow image
+      % python optical_flow.py -m M          # move step in pixels
 
     Adapted from 
  
@@ -25,50 +28,41 @@ optical_flow.py - Optical-flow velocity calculation and display using OpenCV
     GNU General Public License for more details.
 '''
 
-import cv
-import sys
+import cv2
+import numpy as np
+
 import time
 import math
+import optparse
 
 class OpticalFlowCalculator:
     '''
     A class for optical flow calculations using OpenCV
     '''
     
-    def __init__(self, frame_width, frame_height, perspective_angle=0, mv_step=16, 
-                 window_name=None, flow_color_rgb=(0,255,0)):
+    def __init__(self, frame_width, frame_height, scaledown=1,
+                 perspective_angle=0, move_step=16, window_name=None, flow_color_rgb=(0,255,0)):
         '''
         Creates an OpticalFlow object for images with specified width and height.
 
         Optional inputs are:
 
           perspective_angle - perspective angle of camera, for reporting flow in meters per second
-          mv_step           - step size in pixels for sampling the flow image
+          move_step           - step size in pixels for sampling the flow image
           window_name       - window name for display
           flow_color_rgb    - color for displaying flow
         '''
 
-        self.mv_step = mv_step
+        self.move_step = move_step
         self.mv_color_bgr = (flow_color_rgb[2], flow_color_rgb[1], flow_color_rgb[0])
 
         self.perspective_angle = perspective_angle
 
         self.window_name = window_name
         
-        if window_name:
-            cv.NamedWindow(window_name, 1 )
+        self.size = (int(frame_width/scaledown), int(frame_height/scaledown))
 
-        size = (frame_width, frame_height)
-
-        self.bgrbytes = bytearray(frame_width*frame_height * 3)
-        self.image = cv.CreateImageHeader(size, cv.IPL_DEPTH_8U, 3)
-
-        self.gray = cv.CreateImage(size, 8, 1)
-        self.prev_gray = cv.CreateImage(size, 8, 1)
-        self.flow = cv.CreateImage(size, 32, 2)
-
-        self.frame_width = frame_width
-
+        self.prev_gray = None
         self.prev_time = None
 
     def processBytes(self, rgb_bytes, distance=None, timestep=1):
@@ -81,13 +75,9 @@ class OpticalFlowCalculator:
           timestep - time step in seconds for returning flow in meters per second
          '''
 
-        self.bgrbytes[0::3] = rgb_bytes[2::3]
-        self.bgrbytes[1::3] = rgb_bytes[1::3]
-        self.bgrbytes[2::3] = rgb_bytes[0::3]
-                        
-        cv.SetData(self.image, self.bgrbytes, self.frame_width*3)
-        
-        return self.processFrame(self.image, distance, timestep)
+        frame = np.frombuffer(rgb_bytes, np.uint8)
+        frame = np.reshape(frame, (self.size[1], self.size[0], 3))
+        return self.processFrame(frame, distance, timestep)
 
     def processFrame(self, frame, distance=None, timestep=1):
         '''
@@ -99,43 +89,51 @@ class OpticalFlowCalculator:
           timestep - time step in seconds for returning flow in meters per second
         '''
 
-        cv.CvtColor(frame, self.gray, cv.CV_BGR2GRAY)
-            
-        cv.CalcOpticalFlowFarneback(self.prev_gray, self.gray, self.flow)
+        frame2 = cv2.resize(frame, self.size)
+ 
+        gray = cv2.cvtColor(frame2, cv2.cv.CV_BGR2GRAY)
 
         xsum, ysum = 0,0
+
+        xvel, yvel = 0,0
         
-        for y in range(0, self.flow.height, self.mv_step):
+        if self.prev_gray != None:
 
-            for x in range(0, self.flow.width, self.mv_step):
+            flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, pyr_scale=0.5, levels=5, winsize=13, iterations=10, poly_n=5, poly_sigma=1.1, flags=0) 
 
-                fx, fy = self.flow[y, x]
-                xsum += fx
-                ysum += fy
+            for y in range(0, flow.shape[0], self.move_step):
 
-                cv.Line(frame, (x,y), (int(x+fx),int(y+fy)), self.mv_color_bgr)
-                cv.Circle(frame, (x,y), 1, self.mv_color_bgr, -1)
+                for x in range(0, flow.shape[1], self.move_step):
+
+                    fx, fy = flow[y, x]
+                    xsum += fx
+                    ysum += fy
+
+                    cv2.line(frame2, (x,y), (int(x+fx),int(y+fy)), self.mv_color_bgr)
+                    cv2.circle(frame2, (x,y), 1, self.mv_color_bgr, -1)
+
+            # Default to system time if no timestep
+            curr_time = time.time()
+            if not timestep:
+                timestep = (curr_time - self.prev_time) if self.prev_time else 1
+            self.prev_time = curr_time
+
+            xvel = self._get_velocity(flow, xsum, flow.shape[1], distance, timestep)
+            yvel = self._get_velocity(flow, ysum, flow.shape[0], distance, timestep)
+
+        self.prev_gray = gray
 
         if self.window_name:
-            cv.ShowImage(self.window_name, frame)
-            if cv.WaitKey(1) == 27:
+            cv2.imshow(self.window_name, frame2)
+            if cv2.waitKey(1) & 0x000000FF== 27: # ESC
                 return None
-
-        self.prev_gray, self.gray = self.gray, self.prev_gray        
         
-        # Default to system time if no timestep
-        curr_time = time.time()
-        if not timestep:
-            timestep = (curr_time - self.prev_time) if self.prev_time else 1
-        self.prev_time = curr_time
-
        # Normalize and divide by timestep
-        return  self._get_velocity(xsum, self.flow.width,  distance, timestep), \
-                self._get_velocity(ysum, self.flow.height, distance, timestep)
+        return  xvel, yvel
 
-    def _get_velocity(self, sum_velocity_pixels, dimsize_pixels, distance_meters, timestep_seconds):
+    def _get_velocity(self, flow, sum_velocity_pixels, dimsize_pixels, distance_meters, timestep_seconds):
 
-        count =  (self.flow.height * self.flow.width) / self.mv_step**2
+        count =  (flow.shape[0] * flow.shape[1]) / self.move_step**2
 
         average_velocity_pixels_per_second = sum_velocity_pixels / count / timestep_seconds
 
@@ -153,21 +151,41 @@ class OpticalFlowCalculator:
 
 if __name__=="__main__":
 
-    capture = cv.CaptureFromCAM(0) if len(sys.argv) < 2 else cv.CaptureFromFile(sys.argv[1])
+    parser = optparse.OptionParser()
 
-    flow = OpticalFlowCalculator(int(cv.GetCaptureProperty(capture, cv.CV_CAP_PROP_FRAME_WIDTH)), 
-                          int(cv.GetCaptureProperty(capture, cv.CV_CAP_PROP_FRAME_HEIGHT)),
-                          window_name='Optical Flow')
+    parser.add_option("-f", "--file",  dest="filename", help="Read from video file", metavar="FILE")
+    parser.add_option("-s", "--scaledown", dest="scaledown", help="Fractional image scaling", metavar="SCALEDOWN")
+    parser.add_option("-c", "--camera", dest="camera", help="Camera number", metavar="CAMERA")
+    parser.add_option("-m", "--movestep", dest="movestep", help="Move step (pixels)", metavar="MOVESTEP")
+
+    (options, _) = parser.parse_args()
+
+    camno = int(options.camera) if options.camera else 0
+
+    cap = cv2.VideoCapture(camno if not options.filename else options.filename)
+
+    width    = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
+    height   = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))
+
+    scaledown = int(options.scaledown) if options.scaledown else 1
+
+    movestep = int(options.movestep) if options.movestep else 16
+
+    flow = OpticalFlowCalculator(width, height, window_name='Optical Flow', scaledown=scaledown, move_step=movestep) 
 
     start_sec = time.time()
     count = 0
-
     while True:
 
-        frame = cv.QueryFrame(capture)
+        success, frame = cap.read()
 
         count += 1
             
+        if not success:
+            break
+
+        print(frame.shape)
+
         result = flow.processFrame(frame)
 
         if not result:
@@ -175,4 +193,5 @@ if __name__=="__main__":
 
     elapsed_sec = time.time() - start_sec
 
-    print('%d frames in %3.3f sec = %3.3f frames / sec' % (count, elapsed_sec, count/elapsed_sec))
+    print('%dx%d image: %d frames in %3.3f sec = %3.3f frames / sec' % 
+             (width/scaledown, height/scaledown, count, elapsed_sec, count/elapsed_sec))
